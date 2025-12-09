@@ -6,7 +6,8 @@ from pathlib import Path
 import pandas as pd
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-    QFileDialog, QMessageBox, QTableWidget, QLabel, QLineEdit, QSpinBox, QGroupBox, QTableWidgetItem
+    QFileDialog, QMessageBox, QTableWidget, QLabel, QLineEdit, QSpinBox, QGroupBox, QTableWidgetItem,
+    QPlainTextEdit
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor, QFont
@@ -207,11 +208,13 @@ class MainWindow(QWidget):
         log_title.setFont(QFont("Arial", 10, QFont.Bold))
         log_title.setStyleSheet("color: #2c3e50;")
         bottom_left.addWidget(log_title)
-        self.log_label = QLabel("")
-        self.log_label.setAlignment(Qt.AlignTop | Qt.AlignLeft)
-        self.log_label.setWordWrap(True)
-        self.log_label.setStyleSheet("""
-            QLabel {
+        
+        # Use a fixed-height, read-only, scrollable text area for logs so the UI doesn't expand
+        self.log_widget = QPlainTextEdit()
+        self.log_widget.setReadOnly(True)
+        self.log_widget.setFixedHeight(180)
+        self.log_widget.setStyleSheet("""
+            QPlainTextEdit {
                 background-color: #2c3e50;
                 color: #ecf0f1;
                 padding: 8px;
@@ -220,7 +223,7 @@ class MainWindow(QWidget):
                 font-size: 9pt;
             }
         """)
-        bottom_left.addWidget(self.log_label)
+        bottom_left.addWidget(self.log_widget)
         bottom_layout.addLayout(bottom_left, stretch=2)
 
         bottom_right = QVBoxLayout()
@@ -518,12 +521,24 @@ class MainWindow(QWidget):
             QMessageBox.information(self, "Dernière sélection", "Aucune exécution encore réalisée")
 
     def log(self, text):
-        prev = self.log_label.text()
-        new = f"{prev}\n{text}" if prev else text
-        # limiter la taille du log
-        if len(new) > 5000:
-            new = new[-5000:]
-        self.log_label.setText(new)
+        from datetime import datetime
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        msg = f"[{ts}] {text}"
+        try:
+            # append to the scrollable log widget
+            self.log_widget.appendPlainText(msg)
+            # trim content if it grows too large
+            doc = self.log_widget.toPlainText()
+            if len(doc) > 20000:
+                # keep last 15000 characters
+                trimmed = doc[-15000:]
+                self.log_widget.setPlainText(trimmed)
+            # ensure view is scrolled to bottom
+            vs = self.log_widget.verticalScrollBar()
+            vs.setValue(vs.maximum())
+        except Exception:
+            # fallback: last-resort use print
+            print(msg)
 
 def main():
     app = QApplication(sys.argv)
