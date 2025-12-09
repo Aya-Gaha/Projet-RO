@@ -1,0 +1,16 @@
+proj_id,name,cost,benefit,region,type,requires,exclusive_group,labour,land,priority,social_score
+P01,Route_Rurale_A,200000,350000,RegionA,Route,,INFRA1,50,100,2,78
+P02,Ecole_Primaire_B,120000,180000,RegionB,Education,,INFRA2,30,40,3,85
+P03,Hopital_Central_C,800000,1400000,RegionA,Sante,,INFRA3,200,500,1,95
+P04,Station_Eau_D,250000,420000,RegionC,Eau,,INFRA1,60,150,2,82
+P05,Renovation_Pont_E,180000,260000,RegionB,Route,P01,INFRA4,40,60,3,70
+P06,Metro_Ligne1,1500000,2600000,RegionC,Transport,,INFRA5,1000,2000,1,92
+P07,Parc_Solaire_F,500000,900000,RegionA,Energie,,INFRA6,80,300,2,88
+P08,Rehabilitation_Canal_G,220000,330000,RegionD,Eau,,INFRA4,45,120,3,74
+P09,Creche_HauteCapacite_H,140000,210000,RegionB,Education,,INFRA2,25,30,3,80
+P10,Station_Thramway_I,600000,1000000,RegionC,Transport,P06,INFRA5,400,800,1,90
+P11,Logement_Social_J,400000,620000,RegionD,Logement,,INFRA7,300,400,2,83
+P12,Depot_Train_K,350000,500000,RegionC,Transport,,INFRA5,220,350,2,79
+P13,Renforcement_Reseau_Elec_L,280000,450000,RegionA,Energie,,INFRA6,100,200,2,86
+P14,Plateforme_Incendie_M,90000,120000,RegionD,Securite,,INFRA8,15,10,3,65
+P15,Route_Acces_ZoneN,160000,250000,RegionB,Route,,INFRA1,35,50,3,72
