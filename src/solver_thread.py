@@ -15,7 +15,7 @@ class SolverThread(QThread):
 
     def __init__(self, df, budget, resource_caps=None, groups_exclusive=None,
                  dependencies=None, region_min_max=None, K=None,
-                 time_limit=30, pool_solutions=0, multi_crit_alpha=1.0):
+                 time_limit=30, pool_solutions=0, pool_gap=None, multi_crit_alpha=1.0):
         super().__init__()
         self.df = df.copy()
         self.budget = budget
@@ -26,6 +26,7 @@ class SolverThread(QThread):
         self.K = K
         self.time_limit = time_limit
         self.pool_solutions = pool_solutions
+        self.pool_gap = pool_gap
         self.multi_crit_alpha = multi_crit_alpha
 
     def run(self):
@@ -40,6 +41,7 @@ class SolverThread(QThread):
                               K=self.K,
                               time_limit=self.time_limit,
                               pool_solutions=self.pool_solutions,
+                              pool_gap=self.pool_gap,
                               multi_crit_alpha=self.multi_crit_alpha)
             # renvoyer le dictionnaire tel quel
             self.finished.emit({'status': 'ok', 'result': res})

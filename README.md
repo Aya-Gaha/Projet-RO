@@ -48,6 +48,10 @@ From the UI you can:
 
 ---
 
+## Algorithm / Solver
+The solver constructs a binary integer program with one decision variable per project and maximizes aggregated benefit subject to budget, resource, exclusivity, dependency and regional constraints. Gurobi then runs presolve and a branch-and-bound search with heuristics and cutting planes to find and (if possible) prove an optimal integer solution. Multiple alternatives can be requested via Gurobi's solution pool (PoolSolutions) or enumerated using an exclusion-cut wrapper (enumerate_k_best). Note that collecting multiple diverse solutions depends on model structure, solver time, and pool parameters; therefore requesting N solutions does not guarantee N will be returned."
+
+
 ## Installation (recommended)
 
 This project requires Python 3.8+ and the following packages:

@@ -32,6 +32,9 @@ class MainWindow(QWidget):
         # solver thread reference
         self.solver_thread = None
         self.last_solution = None
+        # Pool solutions storage and navigation
+        self.pool_solutions = []
+        self.current_sol_idx = 0
 
         # Apply stylesheet for better aesthetics
         self.apply_stylesheet()
@@ -64,27 +67,27 @@ class MainWindow(QWidget):
 
         # Left: Data buttons
         left_v = QVBoxLayout()
-        left_label = QLabel("📋 Données")
+        left_label = QLabel("Données")
         left_label.setFont(QFont("Arial", 11, QFont.Bold))
         left_label.setStyleSheet("color: #2c3e50;")
         left_v.addWidget(left_label)
 
-        btn_import = QPushButton("📥 Importer CSV")
+        btn_import = QPushButton("Importer CSV")
         btn_import.clicked.connect(self.on_import)
         btn_import.setStyleSheet(self._button_style("#3498db"))
         left_v.addWidget(btn_import)
 
-        btn_save = QPushButton("💾 Enregistrer CSV")
+        btn_save = QPushButton("Enregistrer CSV")
         btn_save.clicked.connect(self.on_save)
         btn_save.setStyleSheet(self._button_style("#27ae60"))
         left_v.addWidget(btn_save)
 
-        btn_add = QPushButton("➕ Ajouter ligne")
+        btn_add = QPushButton(" Ajouter ligne")
         btn_add.clicked.connect(self.on_add_row)
         btn_add.setStyleSheet(self._button_style("#f39c12"))
         left_v.addWidget(btn_add)
 
-        btn_delete = QPushButton("🗑️ Supprimer ligne")
+        btn_delete = QPushButton("Supprimer ligne")
         btn_delete.clicked.connect(self.on_delete_row)
         btn_delete.setStyleSheet(self._button_style("#e74c3c"))
         left_v.addWidget(btn_delete)
@@ -99,7 +102,7 @@ class MainWindow(QWidget):
 
         # Mid: Solve controls
         mid_v = QVBoxLayout()
-        mid_label = QLabel("⚙️ Solveur")
+        mid_label = QLabel("Solveur")
         mid_label.setFont(QFont("Arial", 11, QFont.Bold))
         mid_label.setStyleSheet("color: #2c3e50;")
         mid_v.addWidget(mid_label)
@@ -134,7 +137,7 @@ class MainWindow(QWidget):
 
         # time limit and pool
         controls_layout = QHBoxLayout()
-        timelimit_label = QLabel("⏱️ TimeLimit (s):")
+        timelimit_label = QLabel("TimeLimit (s):")
         timelimit_label.setStyleSheet("color: #34495e; font-weight: bold;")
         self.timelimit_input = QSpinBox()
         self.timelimit_input.setRange(1, 9999)
@@ -143,7 +146,7 @@ class MainWindow(QWidget):
         controls_layout.addWidget(timelimit_label)
         controls_layout.addWidget(self.timelimit_input)
 
-        pool_label = QLabel("🔀 Pool solutions:")
+        pool_label = QLabel("Pool solutions:")
         pool_label.setStyleSheet("color: #34495e; font-weight: bold;")
         self.pool_input = QSpinBox()
         self.pool_input.setRange(0, 50)
@@ -154,14 +157,14 @@ class MainWindow(QWidget):
         mid_v.addLayout(controls_layout)
 
         # Buttons Solve / Stop
-        self.btn_solve = QPushButton("🚀 Optimiser")
+        self.btn_solve = QPushButton(" Optimiser")
         self.btn_solve.clicked.connect(self.on_solve)
         self.btn_solve.setStyleSheet(self._button_style("#16a085", hover="#138d75"))
         self.btn_solve.setMinimumHeight(40)
         self.btn_solve.setFont(QFont("Arial", 10, QFont.Bold))
         mid_v.addWidget(self.btn_solve)
 
-        self.btn_stop = QPushButton("⛔ Annuler (stop)")
+        self.btn_stop = QPushButton(" Annuler (stop)")
         self.btn_stop.clicked.connect(self.on_stop)
         self.btn_stop.setEnabled(False)
         self.btn_stop.setStyleSheet(self._button_style("#c0392b", hover="#a93226"))
@@ -174,7 +177,7 @@ class MainWindow(QWidget):
 
         # Right: Results & Plot
         right_v = QVBoxLayout()
-        right_label = QLabel("📊 Résultats")
+        right_label = QLabel("Résultats")
         right_label.setFont(QFont("Arial", 11, QFont.Bold))
         right_label.setStyleSheet("color: #2c3e50;")
         right_v.addWidget(right_label)
@@ -192,11 +195,44 @@ class MainWindow(QWidget):
         """)
         right_v.addWidget(self.result_label)
 
+        # Navigation buttons for pool solutions
+        nav_layout = QHBoxLayout()
+        self.btn_prev_sol = QPushButton("◄ Précédent")
+        self.btn_prev_sol.clicked.connect(self.on_prev_solution)
+        self.btn_prev_sol.setEnabled(False)
+        self.btn_prev_sol.setStyleSheet(self._button_style("#95a5a6"))
+        nav_layout.addWidget(self.btn_prev_sol)
+
+        self.sol_counter_label = QLabel("Sol: 1/1")
+        self.sol_counter_label.setStyleSheet("color: #34495e; font-weight: bold; text-align: center;")
+        self.sol_counter_label.setAlignment(Qt.AlignCenter)
+        nav_layout.addWidget(self.sol_counter_label)
+
+        self.btn_next_sol = QPushButton("Suivant ►")
+        self.btn_next_sol.clicked.connect(self.on_next_solution)
+        self.btn_next_sol.setEnabled(False)
+        self.btn_next_sol.setStyleSheet(self._button_style("#95a5a6"))
+        nav_layout.addWidget(self.btn_next_sol)
+        right_v.addLayout(nav_layout)
+
         # matplotlib canvas
         self.fig, self.ax = plt.subplots(figsize=(4, 3))
         self.fig.patch.set_facecolor('#f5f5f5')
         self.canvas = FigureCanvas(self.fig)
-        right_v.addWidget(self.canvas)
+        self.solution_list = QPlainTextEdit()
+
+        self.solution_list.setReadOnly(True)
+        self.solution_list.setStyleSheet("""
+            QPlainTextEdit {
+                background-color: #ffffff;
+                border: 1px solid #bdc3c7;
+                padding: 8px;
+                border-radius: 4px;
+            }
+        """)
+        right_v.addWidget(self.solution_list)
+
+        # right_v.addWidget(self.canvas)
 
         top_layout.addLayout(right_v, stretch=1)
 
@@ -204,7 +240,7 @@ class MainWindow(QWidget):
 
         # Bottom area: logs / messages
         bottom_left = QVBoxLayout()
-        log_title = QLabel("📝 Journal d'exécution")
+        log_title = QLabel("Journal d'exécution")
         log_title.setFont(QFont("Arial", 10, QFont.Bold))
         log_title.setStyleSheet("color: #2c3e50;")
         bottom_left.addWidget(log_title)
@@ -228,16 +264,17 @@ class MainWindow(QWidget):
 
         bottom_right = QVBoxLayout()
         # Quick run buttons
-        btn_show_selected = QPushButton("👁️ Afficher sélection")
-        btn_show_selected.clicked.connect(self.on_show_selected)
-        btn_show_selected.setStyleSheet(self._button_style("#3498db"))
-        bottom_right.addWidget(btn_show_selected)
+        # btn_show_selected = QPushButton(" Afficher sélection")
+        # btn_show_selected.clicked.connect(self.on_show_selected)
+        # btn_show_selected.setStyleSheet(self._button_style("#3498db"))
+        # bottom_right.addWidget(btn_show_selected)
+        bottom_right.addWidget(self.canvas)
         bottom_layout.addLayout(bottom_right, stretch=1)
 
         main_layout.addLayout(bottom_layout, stretch=1)
 
         self.setLayout(main_layout)
-        self.log("✅ Application démarrée. Cliquez sur 'Importer CSV' pour charger les données.")
+        self.log(" Application démarrée. Cliquez sur 'Importer CSV' pour charger les données.")
 
     def apply_stylesheet(self):
         """Apply global stylesheet for the application."""
@@ -289,6 +326,8 @@ class MainWindow(QWidget):
             df = load_csv_to_df(path)
             self.df = df
             df_to_qtable(self.table, df)
+            # === AJOUT : activer sauvegarde automatique après edition ===
+            self.table.itemChanged.connect(self._auto_save_cell)
             self.log(f"CSV chargé : {path}")
         except Exception as e:
             self.log(f"Erreur chargement CSV: {e}")
@@ -304,6 +343,25 @@ class MainWindow(QWidget):
         path, _ = QFileDialog.getSaveFileName(self, "Enregistrer CSV", str(BASE_DIR / 'data' / 'projects_example.csv'), "CSV Files (*.csv)")
         if path:
             df = qtable_to_df(self.table)
+                        # === AJOUT : validation erreur utilisateur ===
+            mandatory = ["proj_id", "cost", "benefit"]
+            for m in mandatory:
+                if m not in df.columns:
+                    QMessageBox.critical(self, "Erreur", f"Colonne obligatoire manquante : {m}")
+                    return
+
+            # vérifier numeric fields
+            num_cols = ["cost", "benefit", "labour", "land", "priority", "social_score"]
+            for c in num_cols:
+                if c in df.columns:
+                    bad = pd.to_numeric(df[c], errors="coerce").isna()
+                    if bad.any():
+                        QMessageBox.warning(
+                            self,
+                            "Erreur",
+                            f"Valeurs non numériques dans colonne '{c}'."
+                        )
+                        return
             save_df_to_csv(df, path)
             self.log(f"CSV enregistré : {path}")
 
@@ -403,10 +461,39 @@ class MainWindow(QWidget):
                                           K=None,
                                           time_limit=time_limit,
                                           pool_solutions=pool,
+                                          pool_gap=0.05,
                                           multi_crit_alpha=1.0)
         self.solver_thread.finished.connect(self.on_solver_finished)
         self.solver_thread.error.connect(self.on_solver_error)
         self.solver_thread.start()
+    def _auto_save_cell(self, item):
+        """Sauvegarde automatique après modification d’une cellule."""
+        try:
+            row = item.row()
+            col = item.column()
+            new_val = item.text()
+
+            df = qtable_to_df(self.table)
+            colname = df.columns[col]
+
+            # Vérification : si la colonne doit être numérique
+            if colname in ["cost", "benefit", "labour", "land", "priority", "social_score"]:
+                float(new_val)  # lève ValueError si invalide
+
+            # Mise à jour DataFrame et sauvegarde
+            df.at[row, colname] = new_val
+            if self.df is not None:
+                self.df = df
+
+            if self.csv_path:
+                df.to_csv(self.csv_path, index=False)
+                self.log(f"Auto-save: colonne {colname}, ligne {row}")
+
+        except ValueError:
+            QMessageBox.warning(self, "Erreur", f"Valeur invalide dans '{colname}' : doit être numérique.")
+            # Restaurer ancienne valeur
+            old_df = qtable_to_df(self.table)
+            item.setText(str(old_df.iloc[row, col]))
 
     def on_stop(self):
         # Tentative d'arrêt: pour gurobi, on peut définir un flag (non trivial),
@@ -432,27 +519,19 @@ class MainWindow(QWidget):
             sols = res.get('solutions', [])
             
             if sols:
-                best = sols[0]
-                selected = best.get('selected', [])
-                obj = best.get('obj', None)
+                # Store all solutions for navigation
+                self.pool_solutions = sols
+                self.current_sol_idx = 0
                 
-                # Format result label with more info
-                num_projects = len(selected)
-                result_text = f"✅ Optimal trouvé\nObj: {obj:.2f} | Projets: {num_projects}"
-                if len(sols) > 1:
-                    result_text += f" | Pool: {len(sols)} solutions"
-                self.result_label.setText(result_text)
+                # Update navigation buttons
+                self._update_solution_display()
                 
-                self.log(f"✅ Solveur terminé. Obj: {obj:.2f}. Projets sélectionnés: {', '.join(selected)}")
-                
-                # Update plot with selected projects
-                self.plot_selection(selected)
-                
-                # Store last result for later display
-                self.last_solution = best
+                self.log(f" Solveur terminé. {len(sols)} solution(s) trouvée(s).")
             else:
                 self.result_label.setText("⚠️ Aucune solution trouvée")
                 self.log("⚠️ Aucune solution retournée par le solveur.")
+                self.pool_solutions = []
+                self.current_sol_idx = 0
                 # Clear plot
                 self.ax.clear()
                 self.ax.text(0.5, 0.5, 'Aucune solution', ha='center', va='center', fontsize=12, color='#e74c3c')
@@ -466,6 +545,55 @@ class MainWindow(QWidget):
             self.log(f"❌ Solveur terminé avec statut: {status_msg}")
         
         self.solver_thread = None
+
+    def _update_solution_display(self):
+        """Display current solution from the pool."""
+        if not self.pool_solutions:
+            return
+        
+        if self.current_sol_idx < 0 or self.current_sol_idx >= len(self.pool_solutions):
+            self.current_sol_idx = 0
+        
+        current = self.pool_solutions[self.current_sol_idx]
+        selected = current.get('selected', [])
+        obj = current.get('obj', None)
+        
+        # Format result label
+        num_projects = len(selected)
+        result_text = f" Solution {self.current_sol_idx + 1}/{len(self.pool_solutions)}\nObj: {obj:.2f} | Projets: {num_projects}"
+        self.result_label.setText(result_text)
+        
+        # Update solution list
+        self.solution_list.clear()
+        self.solution_list.appendPlainText("=== Projets sélectionnés ===")
+        for p in selected:
+            self.solution_list.appendPlainText(f"- {p}")
+        self.solution_list.appendPlainText(f"\nObjectif total : {obj:.2f}")
+        
+        # Update solution counter
+        self.sol_counter_label.setText(f"Sol: {self.current_sol_idx + 1}/{len(self.pool_solutions)}")
+        
+        # Enable/disable navigation buttons
+        self.btn_prev_sol.setEnabled(self.current_sol_idx > 0)
+        self.btn_next_sol.setEnabled(self.current_sol_idx < len(self.pool_solutions) - 1)
+        
+        # Update plot
+        self.plot_selection(selected)
+        
+        # Store last result
+        self.last_solution = current
+
+    def on_prev_solution(self):
+        """Navigate to previous solution in pool."""
+        if self.current_sol_idx > 0:
+            self.current_sol_idx -= 1
+            self._update_solution_display()
+
+    def on_next_solution(self):
+        """Navigate to next solution in pool."""
+        if self.current_sol_idx < len(self.pool_solutions) - 1:
+            self.current_sol_idx += 1
+            self._update_solution_display()
 
     def on_solver_error(self, errstr):
         self.btn_solve.setEnabled(True)
@@ -520,25 +648,35 @@ class MainWindow(QWidget):
         else:
             QMessageBox.information(self, "Dernière sélection", "Aucune exécution encore réalisée")
 
+    # def log(self, text):
+    #     prev = self.log_label.text()
+    #     new = f"{prev}\n{text}" if prev else text
+    #     # limiter la taille du log
+    #     if len(new) > 5000:
+    #         new = new[-5000:]
+    #     self.log_label.setText(new)
     def log(self, text):
+        """Write a message in the log_widget safely."""
         from datetime import datetime
         ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        msg = f"[{ts}] {text}"
+        line = f"[{ts}] {text}"
+
         try:
-            # append to the scrollable log widget
-            self.log_widget.appendPlainText(msg)
-            # trim content if it grows too large
-            doc = self.log_widget.toPlainText()
-            if len(doc) > 20000:
-                # keep last 15000 characters
-                trimmed = doc[-15000:]
+            self.log_widget.appendPlainText(line)
+
+            # limiter la taille
+            content = self.log_widget.toPlainText()
+            if len(content) > 20000:
+                trimmed = content[-15000:]
                 self.log_widget.setPlainText(trimmed)
-            # ensure view is scrolled to bottom
-            vs = self.log_widget.verticalScrollBar()
-            vs.setValue(vs.maximum())
+
+            # autoscroll
+            bar = self.log_widget.verticalScrollBar()
+            bar.setValue(bar.maximum())
+
         except Exception:
-            # fallback: last-resort use print
-            print(msg)
+            print(line)
+
 
 def main():
     app = QApplication(sys.argv)

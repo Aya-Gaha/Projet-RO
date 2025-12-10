@@ -38,7 +38,9 @@ def build_solve(df,
                 K=None,
                 time_limit=None,
                 pool_solutions=0,
-                multi_crit_alpha=1.0):
+                pool_gap=None,
+                multi_crit_alpha=1.0,
+                exclude_sets=None):
     """
     df: DataFrame with at least columns ['proj_id','cost','benefit'] (others optional)
     budget: scalar
@@ -49,6 +51,7 @@ def build_solve(df,
     K: optional max number of projects
     time_limit: seconds
     pool_solutions: int (0 = off)
+    pool_gap: optional float, relative tolerance for accepting pool solutions (e.g. 0.05 means accept solutions up to 5% worse)
     multi_crit_alpha: weight for benefit in combined objective [0..1]
     """
     projects = df['proj_id'].tolist()
@@ -77,9 +80,36 @@ def build_solve(df,
     # parameters
     if time_limit is not None:
         m.Params.TimeLimit = time_limit
+
+    # CRITICAL: Reset pool-related params to defaults ALWAYS (avoid stale state)
+    try:
+        m.Params.PoolSearchMode = 0
+        m.Params.PoolSolutions = 0
+    except Exception:
+        pass
+
+    # If user explicitly requested solution pool, enable it
     if pool_solutions and pool_solutions > 0:
         m.Params.PoolSearchMode = 2
         m.Params.PoolSolutions = pool_solutions
+        try:
+            # PoolGap controls how suboptimal pool members can be (None -> default)
+            if pool_gap is not None:
+                m.Params.PoolGap = pool_gap
+            else:
+                # default to allowing suboptimal pool solutions (1.0) if not specified
+                m.Params.PoolGap = 1.0
+            m.Params.MIPFocus = 1      # focus on finding diverse solutions
+            m.Params.NumericFocus = 1  # stabilize pool solution extraction
+        except Exception:
+            pass
+    else:
+        # if user provided pool_gap but didn't request pool_solutions, still set parameter
+        if pool_gap is not None:
+            try:
+                m.Params.PoolGap = pool_gap
+            except Exception:
+                pass
 
     # decision variables
     x = m.addVars(projects, vtype=GRB.BINARY, name='x')
@@ -114,6 +144,14 @@ def build_solve(df,
                 cons = gp.quicksum(df.set_index('proj_id').loc[p, rname] * x[p] for p in projects)
                 m.addConstr(cons <= cap, name=f'Resource_{rname}')
 
+    # Exclude exact previous selections (useful for K-best enumeration)
+    if exclude_sets:
+        for ex_idx, ex_set in enumerate(exclude_sets):
+            members = [p for p in ex_set if p in projects]
+            if members:
+                # forbid selecting all members at once (force at least one different choice)
+                m.addConstr(gp.quicksum(x[p] for p in members) <= len(members) - 1, name=f'Exclude_{ex_idx}')
+
     # regional quotas (min,max)
     if region_min_max:
         # build mapping proj -> region
@@ -142,65 +180,179 @@ def build_solve(df,
     # Optimize
     m.optimize()
 
-    # Collect best solution (and pool if used)
+    # Collect best solution (and pool if explicitly requested)
     solutions = []
     if m.Status in {GRB.OPTIMAL, GRB.SUBOPTIMAL, GRB.TIME_LIMIT}:
-        if pool_solutions and m.SolCount > 0:
-            # Iterate over available pool solutions (robust across Gurobi versions)
-            for s in range(int(min(m.SolCount, pool_solutions))):
-                # try to select solution number s
-                try:
-                    m.Params.SolutionNumber = s
-                except Exception:
+        # ONLY read pool solutions if user explicitly requested them (pool_solutions > 0)
+        if pool_solutions and pool_solutions > 0 and getattr(m, 'SolCount', 0) > 0:
+            # Deterministically read up to pool_solutions solutions from the pool
+            avail = int(getattr(m, 'SolCount', 0))
+            take = int(min(avail, pool_solutions))
+
+            # Get all pool objective values at once using getAttr
+            try:
+                pool_objs = m.getAttr(GRB.Attr.PoolObjVal, m.getVars())
+            except Exception:
+                pool_objs = None
+            
+            # If that didn't work, try via a list comprehension after setting SolutionNumber
+            if pool_objs is None or not isinstance(pool_objs, (list, tuple)):
+                pool_objs = []
+                for s in range(take):
                     try:
                         m.setParam('SolutionNumber', s)
+                        obj = m.PoolObjVal if hasattr(m, 'PoolObjVal') else m.ObjVal
+                        pool_objs.append(obj)
+                    except Exception:
+                        pool_objs.append(m.ObjVal)
+
+            for s in range(take):
+                # Set current solution number for Gurobi to read from pool
+                try:
+                    m.setParam('SolutionNumber', s)
+                except Exception:
+                    try:
+                        m.Params.SolutionNumber = s
                     except Exception:
                         pass
 
-                # read variable values for this pool solution; prefer Xn (pool value), fallback to X
+                # Read variable values for this pool solution using getAttr with SolutionNumber
                 sel = []
-                for p in projects:
-                    var = x[p]
-                    val = None
-                    if hasattr(var, 'Xn'):
-                        try:
-                            val = var.Xn
-                        except Exception:
-                            val = None
-                    if val is None:
-                        # fallback to current solution value
-                        try:
-                            val = var.X
-                        except Exception:
-                            val = 0
-                    if val is not None and val > 0.5:
-                        sel.append(p)
+                try:
+                    # Try to read X values for this specific solution
+                    var_vals = m.getAttr('X', m.getVars())
+                    for var, val in zip(m.getVars(), var_vals):
+                        if val > 0.5:
+                            # Extract project ID from var name (handle 'x_P01' or 'x[P01]' formats)
+                            vname = var.VarName
+                            if 'P' in vname:
+                                proj_id = vname.split('P')[-1].replace(']', '').replace('_', '')
+                                sel.append('P' + proj_id)
+                except Exception:
+                    # Fallback: read individual variables
+                    for p in projects:
+                        var = x[p]
+                        val = None
+                        # Try Xn first (pool solution value)
+                        if hasattr(var, 'Xn'):
+                            try:
+                                val = var.Xn
+                            except Exception:
+                                val = None
+                        # Fall back to X
+                        if val is None:
+                            try:
+                                val = var.X
+                            except Exception:
+                                val = 0
+                        if val is not None and val > 0.5:
+                            sel.append(p)
 
-                # read objective value for this pool solution with fallbacks
-                obj = None
-                if hasattr(m, 'PoolObjVal'):
-                    try:
-                        obj = m.PoolObjVal
-                    except Exception:
-                        obj = None
-                if obj is None:
-                    # try getAttr (older API) or fallback to ObjVal
-                    try:
-                        vals = m.getAttr(GRB.Attr.PoolObjVal)
-                        if isinstance(vals, (list, tuple)) and s < len(vals):
-                            obj = vals[s]
-                        else:
-                            obj = m.ObjVal
-                    except Exception:
-                        obj = m.ObjVal
+                # Read objective value for this pool solution
+                obj = pool_objs[s] if s < len(pool_objs) else m.ObjVal
 
                 solutions.append({'sol_no': s, 'selected': sel, 'obj': float(obj)})
 
         else:
+            # Single best solution ONLY (when pool_solutions == 0 or no solutions found)
             sel = [p for p in projects if x[p].X > 0.5]
             solutions.append({'sol_no': 0, 'selected': sel, 'obj': float(m.ObjVal)})
 
-    return {'model': m, 'solutions': solutions}
+    # Deduplicate solutions that have identical selected sets (preserve order)
+    unique = []
+    seen = set()
+    for sol in solutions:
+        key = tuple(sorted(sol.get('selected', [])))
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(sol)
+
+    # attach some metadata about how many pool solutions Gurobi reported
+    pool_meta = {'gurobi_solcount': int(getattr(m, 'SolCount', 0)), 'requested_pool': int(pool_solutions)}
+
+    # FALLBACK: If user requested pool solutions but Gurobi found too few,
+    # automatically run K-best enumeration to provide the requested alternatives
+    if pool_solutions and pool_solutions > 0 and len(unique) < pool_solutions:
+        fallback_k = pool_solutions
+        fallback_res = enumerate_k_best(
+            df,
+            budget=budget,
+            resource_caps=resource_caps,
+            groups_exclusive=groups_exclusive,
+            dependencies=dependencies,
+            region_min_max=region_min_max,
+            K=K,
+            time_limit=time_limit,
+            k=fallback_k,
+            time_per_solve=time_limit if time_limit else 30,
+            multi_crit_alpha=multi_crit_alpha
+        )
+        # Replace with enumeration results (they are complete and distinct)
+        enum_sols = fallback_res.get('solutions', [])
+        if enum_sols:
+            unique = enum_sols[:pool_solutions]
+
+    return {'model': m, 'solutions': unique, 'pool_meta': pool_meta}
+
+
+def enumerate_k_best(df,
+                     budget,
+                     resource_caps=None,
+                     groups_exclusive=None,
+                     dependencies=None,
+                     region_min_max=None,
+                     K=None,
+                     time_limit=None,
+                     k=3,
+                     time_per_solve=None,
+                     multi_crit_alpha=1.0):
+    """Enumerate up to `k` distinct best solutions by repeatedly solving and
+    adding an exclusion constraint forbidding previously found selections.
+
+    This is a wrapper that repeatedly calls `build_solve` and does not alter
+    the core model logic; it only adds exclusion constraints between iterations.
+    Returns a dict with key 'solutions' containing up to k solution dicts.
+    """
+    found = []
+    exclude_sets = []
+    # time_per_solve allows shorter solves per enumeration if desired
+    per_solve = time_per_solve if time_per_solve is not None else time_limit
+
+    for i in range(k):
+        res = build_solve(df,
+                          budget=budget,
+                          resource_caps=resource_caps,
+                          groups_exclusive=groups_exclusive,
+                          dependencies=dependencies,
+                          region_min_max=region_min_max,
+                          K=K,
+                          time_limit=per_solve,
+                          pool_solutions=0,
+                          multi_crit_alpha=multi_crit_alpha,
+                          exclude_sets=exclude_sets)
+
+        sols = res.get('solutions', [])
+        if not sols:
+            break
+
+        best = sols[0]
+        # Ensure sol_no is sequential within the enumeration (avoid repeated 0s)
+        entry = dict(best)
+        entry['sol_no'] = i
+
+        # attach some metadata about the iteration
+        entry['_iteration'] = i
+        entry['_excluded'] = list(exclude_sets)  # copies of exclude sets used so far
+        # append found solution and then exclude it in next iterations
+        found.append(entry)
+
+        sel = best.get('selected', [])
+        if not sel:
+            break
+        exclude_sets.append(sel)
+
+    return {'solutions': found}
 
 # ---------------------------
 # Example runner / quick test
